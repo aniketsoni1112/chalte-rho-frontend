@@ -53,10 +53,9 @@ export default function DriverDashboard() {
     const captainId = getUserId(user);
     if (!captainId) return;
 
+    // Re-register on every reconnect
     const registerRoom = () =>
       socket.emit("register", { userId: captainId, role: "driver" });
-
-    if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     const onNewRide = (ride) => {

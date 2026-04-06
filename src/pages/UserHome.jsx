@@ -59,16 +59,15 @@ export default function UserHome() {
 
   const userIdRef = useRef(null);
 
-  // Socket — registered ONCE, never torn down
+  // Socket — attach listeners once per userId
   useEffect(() => {
     const userId = getUserId(user);
     if (!userId) return;
     userIdRef.current = userId;
 
+    // Re-register on every reconnect (handles logout/login cycle)
     const registerRoom = () =>
       socket.emit("register", { userId, role: user.role || "user" });
-
-    if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     const onDriverLocation = (loc) => {
@@ -90,10 +89,8 @@ export default function UserHome() {
     const onRideStarted = (data) => {
       setRide((prev) => ({ ...prev, ...data, status: "ongoing" }));
       setPhase(PHASES.TRANSIT);
-      // Flash "Ride Started" banner
       setRideStartedFlash(true);
       setTimeout(() => setRideStartedFlash(false), 4000);
-      // Start ETA countdown from 15 min
       setTransitEta(15);
       setShowShareBanner(true);
       setTimeout(() => setShowShareBanner(false), 6000);
