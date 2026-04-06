@@ -1,4 +1,4 @@
-import { useState, useContext } from "react";
+import { useState, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import { AuthContext } from "../context/AuthContext";
@@ -8,16 +8,28 @@ export default function CaptainSettings() {
   const { user, login } = useContext(AuthContext);
   const [tab, setTab] = useState("profile");
   const [profile, setProfile] = useState({ name: user?.name || "", email: user?.email || "", phone: user?.phone || "" });
-  const [vehicle, setVehicle] = useState({ model: "Honda Activa", number: "MP 09 AB 1234", type: "bike", rc: "", insurance: "" });
+  const [profileImage, setProfileImage] = useState(user?.profileImage || "");
+  const [vehicle, setVehicle] = useState({ model: "Honda Activa", number: user?.vehicleNo || "MP 09 AB 1234", type: user?.vehicle || "bike", rc: "", insurance: "" });
   const [navPref, setNavPref] = useState("inapp");
   const [language, setLanguage] = useState("English");
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const imgInputRef = useRef();
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) return alert("Image must be under 2MB");
+    const reader = new FileReader();
+    reader.onload = () => setProfileImage(reader.result);
+    reader.readAsDataURL(file);
+  };
 
   const saveProfile = async () => {
     setLoading(true);
     try {
-      const res = await API.put("/user/profile", profile);
+      const res = await API.put("/user/profile", { ...profile, profileImage });
       login({ token: localStorage.getItem("token"), user: res.data });
       setSaved(true); setTimeout(() => setSaved(false), 2000);
     } catch { alert("Failed to save"); }
@@ -51,11 +63,24 @@ export default function CaptainSettings() {
         {tab === "profile" && (
           <div className="space-y-3">
             <div className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-4">
-              <div className="w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center text-white text-2xl font-black">
-                {profile.name?.[0] || "C"}
+              <div className="relative">
+                {profileImage ? (
+                  <img src={profileImage} alt="profile"
+                    className="w-16 h-16 rounded-full object-cover border-2 border-yellow-400" />
+                ) : (
+                  <div className="w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center text-white text-2xl font-black">
+                    {profile.name?.[0] || "C"}
+                  </div>
+                )}
+                <button onClick={() => imgInputRef.current.click()}
+                  className="absolute -bottom-1 -right-1 w-6 h-6 bg-gray-900 rounded-full flex items-center justify-center text-white text-xs shadow">
+                  ✏️
+                </button>
+                <input ref={imgInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
               </div>
               <div>
                 <p className="font-black text-gray-800">{profile.name || "Captain"}</p>
+                <p className="text-xs text-yellow-600 font-semibold mt-0.5">Tap ✏️ to change photo</p>
                 <div className="flex items-center gap-1 mt-0.5">
                   {[1,2,3,4,5].map(s => <span key={s} className="text-yellow-400 text-xs">★</span>)}
                   <span className="text-gray-400 text-xs ml-1">4.8</span>

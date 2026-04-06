@@ -202,8 +202,10 @@ export default function DriverDashboard() {
             {/* Profile Header */}
             <div className="bg-gray-900 p-6 pt-10">
               <div className="flex items-center gap-3">
-                <div className="w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center text-white text-2xl font-black shadow-lg">
-                  {user?.name?.[0] || "C"}
+                <div className="w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center text-white text-2xl font-black shadow-lg overflow-hidden">
+                  {user?.profileImage
+                    ? <img src={user.profileImage} alt="profile" className="w-full h-full object-cover" />
+                    : <span>{user?.name?.[0] || "C"}</span>}
                 </div>
                 <div>
                   <p className="font-black text-white text-lg">{user?.name || "Captain"}</p>
