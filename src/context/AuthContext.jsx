@@ -23,6 +23,13 @@ const connectSocket = (user) => {
   else socket.once("connect", register);
 };
 
+const normalizeUser = (user) => {
+  if (!user) return user;
+  // Normalize legacy role:rider -> role:user
+  if (user.role === "rider") return { ...user, role: "user" };
+  return user;
+};
+
 export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -31,8 +38,10 @@ export default function AuthProvider({ children }) {
     try {
       const saved = localStorage.getItem("user");
       if (saved) {
-        const parsed = JSON.parse(saved);
+        const parsed = normalizeUser(JSON.parse(saved));
         if (parsed?.role) {
+          // Re-save normalized user back to localStorage
+          localStorage.setItem("user", JSON.stringify(parsed));
           setUser(parsed);
           connectSocket(parsed);
           registerPush();
@@ -47,10 +56,11 @@ export default function AuthProvider({ children }) {
   }, []);
 
   const login = (data) => {
+    const user = normalizeUser(data.user);
     localStorage.setItem("token", data.token);
-    localStorage.setItem("user", JSON.stringify(data.user));
-    setUser(data.user);
-    connectSocket(data.user);
+    localStorage.setItem("user", JSON.stringify(user));
+    setUser(user);
+    connectSocket(user);
     registerPush();
   };
 
