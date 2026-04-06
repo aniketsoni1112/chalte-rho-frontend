@@ -11,7 +11,7 @@ export default function AuthProvider({ children }) {
     const saved = localStorage.getItem("user");
     if (saved) {
       setUser(JSON.parse(saved));
-      registerPush(); // re-register push on reload
+      registerPush();
     }
     setLoading(false);
   }, []);
@@ -20,7 +20,7 @@ export default function AuthProvider({ children }) {
     localStorage.setItem("token", data.token);
     localStorage.setItem("user", JSON.stringify(data.user));
     setUser(data.user);
-    registerPush(); // register push after login
+    registerPush();
   };
 
   const logout = () => {

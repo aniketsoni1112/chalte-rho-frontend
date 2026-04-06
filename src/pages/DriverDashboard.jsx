@@ -1,11 +1,9 @@
 import { useState, useEffect, useContext } from "react";
 import API from "../services/api";
-import io from "socket.io-client";
+import socket from "../context/SocketContext";
 import { AuthContext } from "../context/AuthContext";
 import LiveMap from "../components/LiveMap";
 import { useNavigate } from "react-router-dom";
-
-const socket = io("http://localhost:5007");
 const PHASES = { IDLE: "idle", REQUEST: "request", ACCEPTED: "accepted", TRANSIT: "transit", DONE: "done" };
 
 export default function DriverDashboard() {
@@ -40,7 +38,7 @@ export default function DriverDashboard() {
 
   // Socket events
   useEffect(() => {
-    const captainId = user?._id || user?.id;
+    const captainId = user?._id?.toString() || user?.id?.toString();
     if (!captainId) return;
 
     // Register captain room

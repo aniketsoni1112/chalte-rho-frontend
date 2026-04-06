@@ -1,7 +1,6 @@
 import { io } from "socket.io-client";
 
-// Yaha paste karein socket initialization
-const socket = io("http://localhost:5007", {
+const socket = io("http://100.77.40.41:5007", {
     transports: ["websocket"]
 });
 

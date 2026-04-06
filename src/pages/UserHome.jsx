@@ -1,11 +1,9 @@
 import { useEffect, useState, useContext, useRef } from "react";
 import API from "../services/api";
-import io from "socket.io-client";
+import socket from "../context/SocketContext";
 import LiveMap from "../components/LiveMap";
 import { AuthContext } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-
-const socket = io("http://localhost:5007");
 
 const VEHICLES = [
   { type: "bike", label: "Bike", icon: "🏍️", base: 25, per: 8, promo: "20% Off", eta: 2 },
@@ -35,7 +33,7 @@ export default function UserHome() {
   const [wallet, setWallet] = useState(user?.wallet || 0);
   const [payMethod, setPayMethod] = useState("cash");
   const [showShareBanner, setShowShareBanner] = useState(false);
-  const destRef = useRef();
+  const [destCoords, setDestCoords] = useState(null);
 
   // GPS
   useEffect(() => {
@@ -47,7 +45,7 @@ export default function UserHome() {
 
   // Socket
   useEffect(() => {
-    const userId = user?._id || user?.id;
+    const userId = user?._id?.toString() || user?.id?.toString();
     if (!userId) return;
 
     const registerRoom = () => socket.emit("register", { userId, role: user.role || "user" });
@@ -103,9 +101,21 @@ export default function UserHome() {
     };
   }, [user]);
 
+  // Haversine distance in km between two lat/lng points
+  const haversine = (lat1, lng1, lat2, lng2) => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
   const estimateFare = (v) => {
-    const dist = 5;
-    let fare = v.base + dist * v.per;
+    // Use real distance if both coords available, else fallback to 5km
+    const dist = (pickup && destCoords)
+      ? haversine(pickup.lat, pickup.lng, destCoords.lat, destCoords.lng)
+      : 5;
+    let fare = Math.round(v.base + dist * v.per);
     if (v.promo) fare = Math.round(fare * 0.8);
     return fare;
   };
@@ -114,15 +124,17 @@ export default function UserHome() {
     if (!destination) return alert("Enter destination");
     if (!selectedVehicle) return alert("Select a vehicle");
     if (!pickup) return alert("Location not detected yet");
+    // Use geocoded coords if available, else fallback offset
+    const destLat = destCoords?.lat ?? pickup.lat + 0.05;
+    const destLng = destCoords?.lng ?? pickup.lng + 0.05;
     setPhase(PHASES.SEARCHING);
     try {
       const res = await API.post("/rides/request", {
         pickup: { lat: pickup.lat, lng: pickup.lng, address: "Current Location" },
-        destination: { lat: pickup.lat + 0.05, lng: pickup.lng + 0.05, address: destination },
+        destination: { lat: destLat, lng: destLng, address: destination },
         vehicle: selectedVehicle.type,
         paymentMethod: payMethod,
       });
-      // API response contains OTP — store it immediately
       setRide(res.data);
       console.log("✅ Ride created | OTP:", res.data.otp, "| Fare:", res.data.fare);
     } catch (err) {
@@ -292,8 +304,19 @@ export default function UserHome() {
                   <p className="text-sm font-semibold text-gray-700">📍 Current Location</p>
                   <div className="border-t border-gray-200" />
                   <p className="text-xs text-gray-400 font-semibold">DROP</p>
-                  <input ref={destRef} value={destination}
-                    onChange={(e) => setDestination(e.target.value)}
+                  <input value={destination}
+                    onChange={async (e) => {
+                      setDestination(e.target.value);
+                      setDestCoords(null);
+                    }}
+                    onBlur={async () => {
+                      if (!destination.trim()) return;
+                      try {
+                        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(destination)}&format=json&limit=1`);
+                        const data = await res.json();
+                        if (data[0]) setDestCoords({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) });
+                      } catch {}
+                    }}
                     className="w-full text-sm font-semibold text-gray-800 bg-transparent outline-none placeholder-gray-400"
                     placeholder="Where are you going?" />
                 </div>
@@ -303,7 +326,14 @@ export default function UserHome() {
             {/* Saved Places */}
             <div className="flex gap-2">
               {SAVED.map((s) => (
-                <button key={s.label} onClick={() => setDestination(s.address)}
+                <button key={s.label} onClick={async () => {
+                    setDestination(s.address);
+                    try {
+                      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(s.address)}&format=json&limit=1`);
+                      const data = await res.json();
+                      if (data[0]) setDestCoords({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) });
+                    } catch {}
+                  }}
                   className="flex items-center gap-2 bg-gray-100 rounded-xl px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-yellow-50 hover:text-yellow-700 transition-all">
                   <span>{s.icon}</span>{s.label}
                 </button>
