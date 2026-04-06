@@ -18,6 +18,16 @@ const SAVED = [
   { label: "Work", icon: "💼", address: "Palasia Square, Indore" },
 ];
 
+// Safely extract plain string userId from any user object shape
+const getUserId = (user) => {
+  if (!user) return null;
+  const raw = user._id || user.id;
+  if (!raw) return null;
+  // Handle Mongoose {$oid: "..."} shape from localStorage
+  if (typeof raw === "object" && raw.$oid) return raw.$oid;
+  return String(raw);
+};
+
 export default function UserHome() {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
@@ -47,7 +57,7 @@ export default function UserHome() {
 
   // Socket — registered ONCE, never torn down
   useEffect(() => {
-    const userId = user?._id?.toString() || user?.id?.toString();
+    const userId = getUserId(user);
     if (!userId) return;
     userIdRef.current = userId;
 
@@ -107,7 +117,7 @@ export default function UserHome() {
       socket.off("ride_cancelled", onRideCancelled);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?._id || user?.id]);
+  }, [getUserId(user)]);
 
   // Haversine distance in km between two lat/lng points
   const haversine = (lat1, lng1, lat2, lng2) => {

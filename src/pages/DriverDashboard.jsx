@@ -4,6 +4,15 @@ import socket from "../context/SocketContext";
 import { AuthContext } from "../context/AuthContext";
 import LiveMap from "../components/LiveMap";
 import { useNavigate } from "react-router-dom";
+
+const getUserId = (user) => {
+  if (!user) return null;
+  const raw = user._id || user.id;
+  if (!raw) return null;
+  if (typeof raw === "object" && raw.$oid) return raw.$oid;
+  return String(raw);
+};
+
 const PHASES = { IDLE: "idle", REQUEST: "request", ACCEPTED: "accepted", TRANSIT: "transit", DONE: "done" };
 
 export default function DriverDashboard() {
@@ -28,7 +37,7 @@ export default function DriverDashboard() {
     if (!online) return;
     const id = setInterval(() => {
       navigator.geolocation.getCurrentPosition((pos) => {
-        const loc = { id: user?._id || user?.id, lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const loc = { id: getUserId(user), lat: pos.coords.latitude, lng: pos.coords.longitude };
         setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         socket.emit("location_update", loc);
       }, () => {});
@@ -41,7 +50,7 @@ export default function DriverDashboard() {
 
   // Socket events — registered ONCE per userId, never torn down on online toggle
   useEffect(() => {
-    const captainId = user?._id?.toString() || user?.id?.toString();
+    const captainId = getUserId(user);
     if (!captainId) return;
 
     const registerRoom = () =>
@@ -62,7 +71,7 @@ export default function DriverDashboard() {
     };
     const onRideStartedConfirm = () => setPhase(PHASES.TRANSIT);
     const onRideCompleted = (ride) => {
-      const uid = user?._id?.toString() || user?.id?.toString();
+      const uid = getUserId(user);
       if (ride.driver === uid || ride.driver?._id === uid) {
         setEarnings((p) => ({ ...p, today: p.today + ride.fare, wallet: p.wallet + ride.fare, trips: p.trips + 1, weekly: p.weekly + ride.fare }));
         setPhase(PHASES.DONE);
@@ -102,7 +111,7 @@ export default function DriverDashboard() {
       socket.off("ride_cancelled", onRideCancelled);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?._id || user?.id]);
+  }, [getUserId(user)]);
 
   // Auto-decline countdown
   useEffect(() => {
