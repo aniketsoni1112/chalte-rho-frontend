@@ -41,9 +41,12 @@ export default function DriverDashboard() {
     const captainId = user?._id?.toString() || user?.id?.toString();
     if (!captainId) return;
 
-    // Register captain room
-    const registerRoom = () => socket.emit("register", { userId: captainId, role: "driver" });
-    registerRoom();
+    const registerRoom = () => {
+      socket.emit("register", { userId: captainId, role: "driver" });
+      console.log("🔁 Registered socket room for captain:", captainId);
+    };
+
+    if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     socket.on("new_ride", (ride) => {

@@ -48,42 +48,41 @@ export default function UserHome() {
     const userId = user?._id?.toString() || user?.id?.toString();
     if (!userId) return;
 
-    const registerRoom = () => socket.emit("register", { userId, role: user.role || "user" });
-    registerRoom();
+    const registerRoom = () => {
+      socket.emit("register", { userId, role: user.role || "user" });
+      console.log("🔁 Registered socket room for user:", userId);
+    };
+
+    // Register immediately and on every reconnect
+    if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     socket.on("driver_location", (loc) =>
       setDrivers((prev) => [...prev.filter((d) => d.id !== loc.id), loc])
     );
-    // Immediate feedback — server confirmed ride is searching
     socket.on("ride_status_update", (data) => {
       if (data.status === "searching") setPhase(PHASES.SEARCHING);
     });
-    // Captain accepted — show captain details + OTP
     socket.on("ride_accepted", (r) => {
-      // Merge with existing ride to preserve OTP from API response
       setRide((prev) => ({ ...prev, ...r, otp: r.otp || prev?.otp }));
       setPhase(PHASES.PICKUP);
       setEta(Math.floor(Math.random() * 5 + 2));
     });
-    // Captain arrived at pickup point
     socket.on("captain_arrived", (r) => {
       setRide((prev) => ({ ...prev, ...r }));
       setEta(0);
     });
-    // OTP verified — ride started — switch to Live Tracking
     socket.on("ride_started", (data) => {
+      console.log("✅ ride_started received:", data);
       setRide((prev) => ({ ...prev, ...data, status: "ongoing" }));
       setPhase(PHASES.TRANSIT);
       setShowShareBanner(true);
       setTimeout(() => setShowShareBanner(false), 6000);
     });
-    // Ride completed
     socket.on("ride_completed", (r) => {
       setRide((prev) => ({ ...prev, ...r }));
       setPhase(PHASES.DONE);
     });
-    // Ride cancelled by captain
     socket.on("ride_cancelled", () => {
       setPhase(PHASES.IDLE); setRide(null); setSelectedVehicle(null);
       alert("Ride was cancelled.");
