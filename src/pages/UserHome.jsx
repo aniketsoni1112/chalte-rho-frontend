@@ -1,4 +1,4 @@
-import { useEffect, useState, useContext, useRef } from "react";
+import { useEffect, useState, useContext, useRef, useCallback } from "react";
 import API from "../services/api";
 import socket from "../context/SocketContext";
 import LiveMap from "../components/LiveMap";
@@ -43,6 +43,9 @@ export default function UserHome() {
     );
   }, []);
 
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
   // Socket
   useEffect(() => {
     const userId = user?._id?.toString() || user?.id?.toString();
@@ -50,53 +53,66 @@ export default function UserHome() {
 
     const registerRoom = () => {
       socket.emit("register", { userId, role: user.role || "user" });
-      console.log("🔁 Registered socket room for user:", userId);
     };
 
-    // Register immediately and on every reconnect
     if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
-    socket.on("driver_location", (loc) =>
-      setDrivers((prev) => [...prev.filter((d) => d.id !== loc.id), loc])
-    );
-    socket.on("ride_status_update", (data) => {
+    const onDriverLocation = (loc) =>
+      setDrivers((prev) => [...prev.filter((d) => d.id !== loc.id), loc]);
+
+    const onRideStatusUpdate = (data) => {
       if (data.status === "searching") setPhase(PHASES.SEARCHING);
-    });
-    socket.on("ride_accepted", (r) => {
+    };
+
+    const onRideAccepted = (r) => {
       setRide((prev) => ({ ...prev, ...r, otp: r.otp || prev?.otp }));
       setPhase(PHASES.PICKUP);
       setEta(Math.floor(Math.random() * 5 + 2));
-    });
-    socket.on("captain_arrived", (r) => {
+    };
+
+    const onCaptainArrived = (r) => {
       setRide((prev) => ({ ...prev, ...r }));
       setEta(0);
-    });
-    socket.on("ride_started", (data) => {
+    };
+
+    const onRideStarted = (data) => {
       console.log("✅ ride_started received:", data);
       setRide((prev) => ({ ...prev, ...data, status: "ongoing" }));
       setPhase(PHASES.TRANSIT);
       setShowShareBanner(true);
       setTimeout(() => setShowShareBanner(false), 6000);
-    });
-    socket.on("ride_completed", (r) => {
+    };
+
+    const onRideCompleted = (r) => {
       setRide((prev) => ({ ...prev, ...r }));
       setPhase(PHASES.DONE);
-    });
-    socket.on("ride_cancelled", () => {
-      setPhase(PHASES.IDLE); setRide(null); setSelectedVehicle(null);
+    };
+
+    const onRideCancelled = () => {
+      setPhase(PHASES.IDLE);
+      setRide(null);
+      setSelectedVehicle(null);
       alert("Ride was cancelled.");
-    });
+    };
+
+    socket.on("driver_location", onDriverLocation);
+    socket.on("ride_status_update", onRideStatusUpdate);
+    socket.on("ride_accepted", onRideAccepted);
+    socket.on("captain_arrived", onCaptainArrived);
+    socket.on("ride_started", onRideStarted);
+    socket.on("ride_completed", onRideCompleted);
+    socket.on("ride_cancelled", onRideCancelled);
 
     return () => {
       socket.off("connect", registerRoom);
-      socket.off("driver_location");
-      socket.off("ride_status_update");
-      socket.off("ride_accepted");
-      socket.off("captain_arrived");
-      socket.off("ride_started");
-      socket.off("ride_completed");
-      socket.off("ride_cancelled");
+      socket.off("driver_location", onDriverLocation);
+      socket.off("ride_status_update", onRideStatusUpdate);
+      socket.off("ride_accepted", onRideAccepted);
+      socket.off("captain_arrived", onCaptainArrived);
+      socket.off("ride_started", onRideStarted);
+      socket.off("ride_completed", onRideCompleted);
+      socket.off("ride_cancelled", onRideCancelled);
     };
   }, [user]);
 

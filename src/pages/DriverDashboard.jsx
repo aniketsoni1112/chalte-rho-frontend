@@ -43,42 +43,37 @@ export default function DriverDashboard() {
 
     const registerRoom = () => {
       socket.emit("register", { userId: captainId, role: "driver" });
-      console.log("🔁 Registered socket room for captain:", captainId);
     };
 
     if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
-    socket.on("new_ride", (ride) => {
+    const onNewRide = (ride) => {
       if (!online) return;
       setActiveRide(ride);
       setPhase(PHASES.REQUEST);
       setTimer(20);
-    });
+    };
 
-    // ride_assigned = targeted emit when captain accepts
-    socket.on("ride_assigned", (data) => {
+    const onRideAssigned = (data) => {
       setActiveRide((prev) => ({ ...prev, ...data }));
       setPhase(PHASES.ACCEPTED);
-    });
+    };
 
-    // ride_started_confirm = OTP verified by captain
-    socket.on("ride_started_confirm", (data) => {
+    const onRideStartedConfirm = () => {
       setPhase(PHASES.TRANSIT);
-    });
+    };
 
-    socket.on("ride_completed", (ride) => {
-      const uid = user?._id || user?.id;
+    const onRideCompleted = (ride) => {
+      const uid = user?._id?.toString() || user?.id?.toString();
       if (ride.driver === uid || ride.driver?._id === uid) {
         setEarnings((p) => ({ ...p, today: p.today + ride.fare, wallet: p.wallet + ride.fare, trips: p.trips + 1, weekly: p.weekly + ride.fare }));
         setPhase(PHASES.DONE);
         setActiveRide((prev) => ({ ...prev, ...ride }));
       }
-    });
+    };
 
-    // Ride cancelled by user — show popup + audio + reset to online
-    socket.on("ride_cancelled", () => {
-      // Play audio alert
+    const onRideCancelled = () => {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = ctx.createOscillator();
@@ -94,11 +89,7 @@ export default function DriverDashboard() {
         oscillator.start(ctx.currentTime);
         oscillator.stop(ctx.currentTime + 0.6);
       } catch {}
-
-      // Show cancel popup
       setCancelPopup(true);
-
-      // Auto-dismiss after 4s and reset to online/idle
       setTimeout(() => {
         setCancelPopup(false);
         setPhase(PHASES.IDLE);
@@ -106,15 +97,21 @@ export default function DriverDashboard() {
         setOtp("");
         setTimer(20);
       }, 4000);
-    });
+    };
+
+    socket.on("new_ride", onNewRide);
+    socket.on("ride_assigned", onRideAssigned);
+    socket.on("ride_started_confirm", onRideStartedConfirm);
+    socket.on("ride_completed", onRideCompleted);
+    socket.on("ride_cancelled", onRideCancelled);
 
     return () => {
       socket.off("connect", registerRoom);
-      socket.off("new_ride");
-      socket.off("ride_assigned");
-      socket.off("ride_started_confirm");
-      socket.off("ride_completed");
-      socket.off("ride_cancelled");
+      socket.off("new_ride", onNewRide);
+      socket.off("ride_assigned", onRideAssigned);
+      socket.off("ride_started_confirm", onRideStartedConfirm);
+      socket.off("ride_completed", onRideCompleted);
+      socket.off("ride_cancelled", onRideCancelled);
     };
   }, [online, user]);
 
