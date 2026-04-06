@@ -122,8 +122,13 @@ export default function DriverDashboard() {
   }, [phase, timer]);
 
   const acceptRide = async () => {
-    try { const res = await API.post(`/rides/accept/${activeRide._id}`); setActiveRide(res.data); } catch {}
-    setPhase(PHASES.ACCEPTED);
+    try {
+      const res = await API.post(`/rides/accept/${activeRide._id}`);
+      setActiveRide(res.data);
+      setPhase(PHASES.ACCEPTED);
+    } catch (err) {
+      alert(err.response?.data?.msg || "Failed to accept ride");
+    }
   };
 
   const markArrived = async () => {
