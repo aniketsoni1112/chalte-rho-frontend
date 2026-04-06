@@ -271,6 +271,11 @@ export default function DriverDashboard() {
             <div className="w-5 h-0.5 bg-white rounded" />
             <div className="w-5 h-0.5 bg-white rounded" />
           </button>
+          <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/30 flex-shrink-0">
+            {user?.profileImage
+              ? <img src={user.profileImage} alt="profile" className="w-full h-full object-cover" />
+              : <div className="w-full h-full bg-yellow-500 flex items-center justify-center text-white font-black text-sm">{user?.name?.[0] || "C"}</div>}
+          </div>
           <div>
             <p className="font-black text-white text-base">🏍️ {user?.name || "Captain"}</p>
             <p className={`text-xs font-semibold ${online ? "text-green-200" : "text-gray-400"}`}>

@@ -14,7 +14,6 @@ export default function CaptainSettings() {
   const [language, setLanguage] = useState("English");
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const imgInputRef = useRef();
 
   const handleImageChange = (e) => {
@@ -30,9 +29,13 @@ export default function CaptainSettings() {
     setLoading(true);
     try {
       const res = await API.put("/user/profile", { ...profile, profileImage });
+      // Persist updated user (including profileImage) into AuthContext + localStorage
       login({ token: localStorage.getItem("token"), user: res.data });
-      setSaved(true); setTimeout(() => setSaved(false), 2000);
-    } catch { alert("Failed to save"); }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      alert(err.response?.data?.msg || "Failed to save");
+    }
     setLoading(false);
   };
 
