@@ -19,6 +19,7 @@ export default function Login() {
       login(res.data);
       const role = res.data.user?.role;
       if (role === "driver") navigate("/driver");
+      else if (role === "admin") navigate("/admin");
       else navigate("/");
     } catch (err) {
       console.error(err);

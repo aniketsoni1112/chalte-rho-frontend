@@ -28,8 +28,8 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/" element={<ProtectedRoute><UserHome /></ProtectedRoute>} />
-        <Route path="/driver" element={<ProtectedRoute><DriverDashboard /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute role="user"><UserHome /></ProtectedRoute>} />
+        <Route path="/driver" element={<ProtectedRoute role="driver"><DriverDashboard /></ProtectedRoute>} />
         <Route path="/history" element={<ProtectedRoute><RideHistory /></ProtectedRoute>} />
         <Route path="/payment" element={<ProtectedRoute><Payment /></ProtectedRoute>} />
         <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
@@ -43,7 +43,7 @@ export default function App() {
         <Route path="/captain/rewards" element={<ProtectedRoute><CaptainRewards /></ProtectedRoute>} />
         <Route path="/captain/support" element={<ProtectedRoute><CaptainSupport /></ProtectedRoute>} />
         <Route path="/captain/settings" element={<ProtectedRoute><CaptainSettings /></ProtectedRoute>} />
-        <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
       </Routes>
       <ChatBot />
     </BrowserRouter>
