@@ -36,34 +36,31 @@ export default function DriverDashboard() {
     return () => clearInterval(id);
   }, [online, user]);
 
-  // Socket events
+  const onlineRef = useRef(online);
+  useEffect(() => { onlineRef.current = online; }, [online]);
+
+  // Socket events — registered ONCE per userId, never torn down on online toggle
   useEffect(() => {
     const captainId = user?._id?.toString() || user?.id?.toString();
     if (!captainId) return;
 
-    const registerRoom = () => {
+    const registerRoom = () =>
       socket.emit("register", { userId: captainId, role: "driver" });
-    };
 
     if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     const onNewRide = (ride) => {
-      if (!online) return;
+      if (!onlineRef.current) return;
       setActiveRide(ride);
       setPhase(PHASES.REQUEST);
       setTimer(20);
     };
-
     const onRideAssigned = (data) => {
       setActiveRide((prev) => ({ ...prev, ...data }));
       setPhase(PHASES.ACCEPTED);
     };
-
-    const onRideStartedConfirm = () => {
-      setPhase(PHASES.TRANSIT);
-    };
-
+    const onRideStartedConfirm = () => setPhase(PHASES.TRANSIT);
     const onRideCompleted = (ride) => {
       const uid = user?._id?.toString() || user?.id?.toString();
       if (ride.driver === uid || ride.driver?._id === uid) {
@@ -72,31 +69,22 @@ export default function DriverDashboard() {
         setActiveRide((prev) => ({ ...prev, ...ride }));
       }
     };
-
     const onRideCancelled = () => {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = ctx.createOscillator();
+        const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        oscillator.connect(gain);
-        gain.connect(ctx.destination);
-        oscillator.type = "square";
-        oscillator.frequency.setValueAtTime(880, ctx.currentTime);
-        oscillator.frequency.setValueAtTime(440, ctx.currentTime + 0.2);
-        oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.4);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = "square";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.setValueAtTime(440, ctx.currentTime + 0.2);
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.4);
         gain.gain.setValueAtTime(0.3, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-        oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.6);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.6);
       } catch {}
       setCancelPopup(true);
-      setTimeout(() => {
-        setCancelPopup(false);
-        setPhase(PHASES.IDLE);
-        setActiveRide(null);
-        setOtp("");
-        setTimer(20);
-      }, 4000);
+      setTimeout(() => { setCancelPopup(false); setPhase(PHASES.IDLE); setActiveRide(null); setOtp(""); setTimer(20); }, 4000);
     };
 
     socket.on("new_ride", onNewRide);
@@ -113,7 +101,8 @@ export default function DriverDashboard() {
       socket.off("ride_completed", onRideCompleted);
       socket.off("ride_cancelled", onRideCancelled);
     };
-  }, [online, user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id || user?.id]);
 
   // Auto-decline countdown
   useEffect(() => {

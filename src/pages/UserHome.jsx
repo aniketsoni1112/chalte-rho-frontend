@@ -43,52 +43,44 @@ export default function UserHome() {
     );
   }, []);
 
-  const phaseRef = useRef(phase);
-  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const userIdRef = useRef(null);
 
-  // Socket
+  // Socket — registered ONCE, never torn down
   useEffect(() => {
     const userId = user?._id?.toString() || user?.id?.toString();
     if (!userId) return;
+    userIdRef.current = userId;
 
-    const registerRoom = () => {
+    const registerRoom = () =>
       socket.emit("register", { userId, role: user.role || "user" });
-    };
 
     if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     const onDriverLocation = (loc) =>
       setDrivers((prev) => [...prev.filter((d) => d.id !== loc.id), loc]);
-
     const onRideStatusUpdate = (data) => {
       if (data.status === "searching") setPhase(PHASES.SEARCHING);
     };
-
     const onRideAccepted = (r) => {
       setRide((prev) => ({ ...prev, ...r, otp: r.otp || prev?.otp }));
       setPhase(PHASES.PICKUP);
       setEta(Math.floor(Math.random() * 5 + 2));
     };
-
     const onCaptainArrived = (r) => {
       setRide((prev) => ({ ...prev, ...r }));
       setEta(0);
     };
-
     const onRideStarted = (data) => {
-      console.log("✅ ride_started received:", data);
       setRide((prev) => ({ ...prev, ...data, status: "ongoing" }));
       setPhase(PHASES.TRANSIT);
       setShowShareBanner(true);
       setTimeout(() => setShowShareBanner(false), 6000);
     };
-
     const onRideCompleted = (r) => {
       setRide((prev) => ({ ...prev, ...r }));
       setPhase(PHASES.DONE);
     };
-
     const onRideCancelled = () => {
       setPhase(PHASES.IDLE);
       setRide(null);
@@ -114,7 +106,8 @@ export default function UserHome() {
       socket.off("ride_completed", onRideCompleted);
       socket.off("ride_cancelled", onRideCancelled);
     };
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id || user?.id]);
 
   // Haversine distance in km between two lat/lng points
   const haversine = (lat1, lng1, lat2, lng2) => {
