@@ -44,6 +44,10 @@ export default function UserHome() {
   const [payMethod, setPayMethod] = useState("cash");
   const [showShareBanner, setShowShareBanner] = useState(false);
   const [destCoords, setDestCoords] = useState(null);
+  const [rideStartedFlash, setRideStartedFlash] = useState(false);
+  const [transitEta, setTransitEta] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
+  const transitTimerRef = useRef(null);
 
   // GPS
   useEffect(() => {
@@ -67,8 +71,10 @@ export default function UserHome() {
     if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
-    const onDriverLocation = (loc) =>
+    const onDriverLocation = (loc) => {
       setDrivers((prev) => [...prev.filter((d) => d.id !== loc.id), loc]);
+      setDriverLocation({ lat: loc.lat, lng: loc.lng });
+    };
     const onRideStatusUpdate = (data) => {
       if (data.status === "searching") setPhase(PHASES.SEARCHING);
     };
@@ -84,6 +90,11 @@ export default function UserHome() {
     const onRideStarted = (data) => {
       setRide((prev) => ({ ...prev, ...data, status: "ongoing" }));
       setPhase(PHASES.TRANSIT);
+      // Flash "Ride Started" banner
+      setRideStartedFlash(true);
+      setTimeout(() => setRideStartedFlash(false), 4000);
+      // Start ETA countdown from 15 min
+      setTransitEta(15);
       setShowShareBanner(true);
       setTimeout(() => setShowShareBanner(false), 6000);
     };
@@ -118,6 +129,15 @@ export default function UserHome() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getUserId(user)]);
+
+  // ETA countdown during TRANSIT
+  useEffect(() => {
+    if (phase !== PHASES.TRANSIT || transitEta === null) return;
+    if (transitEta <= 0) return;
+    transitTimerRef.current = setTimeout(() =>
+      setTransitEta((p) => (p > 0 ? p - 1 : 0)), 60000); // tick every minute
+    return () => clearTimeout(transitTimerRef.current);
+  }, [phase, transitEta]);
 
   // Haversine distance in km between two lat/lng points
   const haversine = (lat1, lng1, lat2, lng2) => {
@@ -267,7 +287,7 @@ export default function UserHome() {
 
       {/* MAP — full background */}
       <div className="flex-1 relative" style={{ zIndex: 0 }}>
-        <LiveMap position={pickup} drivers={drivers} />
+        <LiveMap position={phase === PHASES.TRANSIT && driverLocation ? driverLocation : pickup} drivers={drivers} />
 
         {/* Share Live Location banner — appears when ride starts */}
         {showShareBanner && (
@@ -301,6 +321,17 @@ export default function UserHome() {
         <button onClick={sosAlert} className="absolute top-3 right-3 bg-red-500 text-white font-black text-xs px-3 py-2 rounded-full shadow-lg z-[999]">
           🆘 SOS
         </button>
+
+        {/* ── RIDE STARTED FLASH ── */}
+        {rideStartedFlash && (
+          <div className="absolute inset-0 z-[1000] flex items-center justify-center pointer-events-none">
+            <div className="bg-green-500 text-white rounded-3xl px-8 py-6 shadow-2xl text-center animate-bounce">
+              <div className="text-5xl mb-2">🚀</div>
+              <p className="font-black text-2xl">Ride Started!</p>
+              <p className="text-green-100 text-sm mt-1">Have a safe trip 🙏</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* BOTTOM SHEET */}
@@ -499,11 +530,15 @@ export default function UserHome() {
             {/* Live status bar */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse" />
-                <p className="font-black text-green-600 text-sm">Ride in Progress</p>
+                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                <p className="font-black text-green-600">Ride in Progress 🚀</p>
               </div>
-              <div className="flex items-center gap-1 bg-green-50 border border-green-200 px-3 py-1 rounded-full">
-                <span className="text-green-600 text-xs font-bold">🕒 {Math.floor(Math.random() * 10 + 5)} min ETA</span>
+              <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 px-3 py-1.5 rounded-full">
+                <span className="text-green-600 text-xs font-black">
+                  {transitEta !== null && transitEta > 0
+                    ? `🕒 ${transitEta} min ETA`
+                    : "📍 Arriving soon"}
+                </span>
               </div>
             </div>
 
@@ -522,13 +557,13 @@ export default function UserHome() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 font-semibold">TO</p>
-                    <p className="font-black text-gray-800 text-sm">{destination}</p>
+                    <p className="font-black text-gray-800 text-sm">{destination || ride?.destination?.address || "Destination"}</p>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-gray-400">Fare</p>
-                  <p className="font-black text-yellow-600 text-lg">₹{ride?.fare}</p>
-                  <p className="text-xs text-gray-400 capitalize">{ride?.paymentMethod}</p>
+                  <p className="font-black text-yellow-600 text-xl">&#8377;{ride?.fare}</p>
+                  <p className="text-xs text-gray-400 capitalize mt-0.5">{ride?.paymentMethod}</p>
                 </div>
               </div>
             </div>
@@ -561,7 +596,6 @@ export default function UserHome() {
 
             {/* Action buttons */}
             <div className="grid grid-cols-3 gap-2">
-              {/* Share Trip */}
               <button onClick={() => {
                   const msg = `I'm on a ride to ${destination}. Track me!`;
                   if (navigator.share) navigator.share({ title: "My Live Trip", text: msg });
@@ -571,15 +605,11 @@ export default function UserHome() {
                 <span className="text-xl">📲</span>
                 <span className="text-xs font-bold text-blue-600">Share Trip</span>
               </button>
-
-              {/* Safety Shield */}
               <button onClick={sosAlert}
                 className="flex flex-col items-center gap-1 bg-red-50 border border-red-200 rounded-2xl p-3">
                 <span className="text-xl">🛡️</span>
                 <span className="text-xs font-bold text-red-600">Safety</span>
               </button>
-
-              {/* Support */}
               <button onClick={() => navigate("/support")}
                 className="flex flex-col items-center gap-1 bg-gray-50 border border-gray-100 rounded-2xl p-3">
                 <span className="text-xl">❓</span>
@@ -587,12 +617,10 @@ export default function UserHome() {
               </button>
             </div>
 
-            {/* SOS full button */}
             <button onClick={sosAlert}
               className="w-full bg-red-500 text-white font-black py-3 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-red-200">
               🆘 Emergency SOS
             </button>
-
           </div>
         )}
 
