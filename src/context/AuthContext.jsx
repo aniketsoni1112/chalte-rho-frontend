@@ -8,10 +8,20 @@ export default function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem("user");
-    if (saved) {
-      setUser(JSON.parse(saved));
-      registerPush();
+    try {
+      const saved = localStorage.getItem("user");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.role) {
+          setUser(parsed);
+          registerPush();
+        } else {
+          // Stale user object missing role — force fresh login
+          localStorage.clear();
+        }
+      }
+    } catch {
+      localStorage.clear();
     }
     setLoading(false);
   }, []);
