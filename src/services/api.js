@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const TUNNEL_URL = "https://pointed-fourth-writings-producer.trycloudflare.com";
+const TUNNEL_URL = "http://192.168.1.8:5008";
 
 const API = axios.create({
   baseURL: `${TUNNEL_URL}/api`,
