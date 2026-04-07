@@ -1,11 +1,12 @@
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:5007", {
+const socket = io("https://brown-dragons-drive.loca.lt", {
   transports: ["websocket", "polling"],
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
-  autoConnect: false, // we control connect/disconnect manually
+  autoConnect: false,
+  extraHeaders: { "bypass-tunnel-reminder": "true" },
 });
 
 export default socket;
