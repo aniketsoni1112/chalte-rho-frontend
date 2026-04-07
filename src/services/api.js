@@ -1,8 +1,10 @@
 import axios from "axios";
 
+const TUNNEL_URL = "https://pointed-fourth-writings-producer.trycloudflare.com";
+
 const API = axios.create({
-  baseURL: "https://brown-dragons-drive.loca.lt/api",
-  headers: { "bypass-tunnel-reminder": "true" },
+  baseURL: `${TUNNEL_URL}/api`,
+  headers: {},
 });
 
 API.interceptors.request.use((req) => {
@@ -12,3 +14,4 @@ API.interceptors.request.use((req) => {
 });
 
 export default API;
+export { TUNNEL_URL };
