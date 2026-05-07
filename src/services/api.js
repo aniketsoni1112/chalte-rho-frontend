@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8200";
+const BASE_URL = import.meta.env.VITE_API_URL || "https://chalte-rho-backend.onrender.com";
 
 const API = axios.create({
   baseURL: `${BASE_URL}/api`,
