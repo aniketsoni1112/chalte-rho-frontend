@@ -1,9 +1,9 @@
 import axios from "axios";
 
-const TUNNEL_URL = "http://192.168.1.8:5009";
+const BASE_URL = `http://${window.location.hostname}:8200`;
 
 const API = axios.create({
-  baseURL: `${TUNNEL_URL}/api`,
+  baseURL: `${BASE_URL}/api`,
   headers: {},
 });
 
@@ -14,4 +14,4 @@ API.interceptors.request.use((req) => {
 });
 
 export default API;
-export { TUNNEL_URL };
+export { BASE_URL };
