@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = `http://${window.location.hostname}:8200`;
+const BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8200`;
 
 const API = axios.create({
   baseURL: `${BASE_URL}/api`,
