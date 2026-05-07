@@ -1,10 +1,13 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8200`;
+const BASE_URL = import.meta.env.VITE_API_URL;
+
+if (!BASE_URL) {
+  throw new Error("VITE_API_URL is not defined. Add it to .env (local) or Vercel Environment Variables (production).");
+}
 
 const API = axios.create({
   baseURL: `${BASE_URL}/api`,
-  headers: {},
 });
 
 API.interceptors.request.use((req) => {
