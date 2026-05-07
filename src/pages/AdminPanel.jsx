@@ -1,23 +1,28 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import LiveMap from "../components/LiveMap";
+import { AuthContext } from "../context/AuthContext";
 
-const TABS = [
-  { id: "overview", label: "📊 Overview" },
-  { id: "live", label: "🗺️ Live Ops" },
-  { id: "users", label: "👥 Users" },
-  { id: "rides", label: "🚀 Rides" },
-  { id: "pricing", label: "💸 Pricing" },
-  { id: "coupons", label: "🎟️ Coupons" },
-  { id: "broadcast", label: "📢 Broadcast" },
-  { id: "payouts", label: "💰 Payouts" },
-  { id: "support", label: "🎫 Support" },
+const ALL_TABS = [
+  { id: "overview",  label: "📊 Overview",   roles: ["admin", "manager"] },
+  { id: "live",      label: "🗺️ Live Ops",    roles: ["admin"] },
+  { id: "users",     label: "👥 Users",       roles: ["admin"] },
+  { id: "captains",  label: "🏍️ Captains",   roles: ["admin", "manager"] },
+  { id: "rides",     label: "🚀 Rides",       roles: ["admin", "manager"] },
+  { id: "pricing",   label: "💸 Pricing",     roles: ["admin"] },
+  { id: "coupons",   label: "🎟️ Coupons",    roles: ["admin"] },
+  { id: "broadcast", label: "📢 Broadcast",   roles: ["admin"] },
+  { id: "payouts",   label: "💰 Payouts",     roles: ["admin", "manager"] },
+  { id: "support",   label: "🎫 Support",     roles: ["admin"] },
 ];
 
 export default function AdminPanel() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState("overview");
+  const { user } = useContext(AuthContext);
+  const role = user?.role || "admin";
+  const TABS = ALL_TABS.filter(t => t.roles.includes(role));
+  const [tab, setTab] = useState(TABS[0]?.id || "overview");
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [rides, setRides] = useState([]);
@@ -41,6 +46,7 @@ export default function AdminPanel() {
   useEffect(() => {
     setLoading(true);
     const calls = {
+      captains: () => API.get("/manager/captains").then(r => setUsers(r.data.filter(u => u.role === "driver"))),
       overview: () => API.get("/admin/stats").then(r => setStats(r.data)),
       live: () => API.get("/admin/stats").then(r => setStats(r.data)),
       users: () => API.get(`/admin/users?role=${roleFilter}&search=${search}`).then(r => setUsers(r.data)),
@@ -104,8 +110,8 @@ export default function AdminPanel() {
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="text-white text-xl">←</button>
           <div>
-            <h1 className="text-white font-black text-lg">⚙️ Admin Dashboard</h1>
-            <p className="text-gray-400 text-xs">chalte rho Operations</p>
+            <h1 className="text-white font-black text-lg">{role === "manager" ? "🛡️ Manager Dashboard" : "⚙️ Admin Dashboard"}</h1>
+            <p className="text-gray-400 text-xs">{user?.name} • {role}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -132,13 +138,15 @@ export default function AdminPanel() {
           <>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: "Total Users", value: stats.totalUsers, icon: "👤", color: "bg-blue-500" },
-                { label: "Total Drivers", value: stats.totalDrivers, icon: "🏍️", color: "bg-yellow-500" },
-                { label: "Online Drivers", value: stats.onlineDrivers || 0, icon: "🟢", color: "bg-green-500" },
-                { label: "Active Rides", value: stats.activeRides || 0, icon: "🚀", color: "bg-purple-500" },
-                { label: "Total Rides", value: stats.totalRides, icon: "📊", color: "bg-indigo-500" },
-                { label: "Revenue", value: `₹${stats.revenue}`, icon: "💰", color: "bg-orange-500" },
-              ].map((s) => (
+                { label: "Total Users",   value: stats.totalUsers,      icon: "👤", color: "bg-blue-500",   roles: ["admin"] },
+                { label: "Total Drivers", value: stats.totalDrivers,    icon: "🏍️", color: "bg-yellow-500", roles: ["admin", "manager"] },
+                { label: "Online Now",    value: stats.onlineDrivers||0, icon: "🟢", color: "bg-green-500",  roles: ["admin", "manager"] },
+                { label: "Active Rides",  value: stats.activeRides||0,  icon: "🚀", color: "bg-purple-500", roles: ["admin", "manager"] },
+                { label: "Pending Approval", value: stats.pendingCaptains||0, icon: "⏳", color: "bg-orange-500", roles: ["admin", "manager"] },
+                { label: "Approved Captains", value: stats.approvedCaptains||0, icon: "✅", color: "bg-teal-500", roles: ["admin", "manager"] },
+                { label: "Total Rides",   value: stats.totalRides,      icon: "📊", color: "bg-indigo-500", roles: ["admin"] },
+                { label: "Revenue",       value: `₹${stats.revenue}`,  icon: "💰", color: "bg-orange-500", roles: ["admin"] },
+              ].filter(s => s.roles.includes(role)).map((s) => (
                 <div key={s.label} className={`${s.color} rounded-2xl p-4 text-white shadow`}>
                   <p className="text-2xl">{s.icon}</p>
                   <p className="font-black text-2xl mt-1">{s.value}</p>
@@ -270,6 +278,41 @@ export default function AdminPanel() {
               ))}
             </div>
           </>
+        )}
+
+        {/* ── CAPTAINS ── */}
+        {tab === "captains" && (
+          <div className="space-y-2">
+            {users.filter(u => u.role === "driver").map(c => (
+              <div key={c._id} className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-full flex items-center justify-center text-white font-black">
+                      {c.name?.[0] || "C"}
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-800 text-sm">{c.name}</p>
+                      <p className="text-gray-400 text-xs">{c.email || c.phone}</p>
+                    </div>
+                  </div>
+                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                    c.captainStatus === "approved" ? "bg-green-100 text-green-700" :
+                    c.captainStatus === "rejected" ? "bg-red-100 text-red-600" :
+                    "bg-yellow-100 text-yellow-700"
+                  }`}>{c.captainStatus || "pending"}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-xs text-gray-500">
+                  <span>🏍️ {c.vehicle} • {c.vehicleNumber || "N/A"}</span>
+                  <span>📄 RC: {c.rcCardNumber || "N/A"}</span>
+                  <span>🪹 License: {c.licenseNumber || "N/A"}</span>
+                  {c.approvedBy && <span>✅ By: {c.approvedBy?.name || "Manager"}</span>}
+                </div>
+              </div>
+            ))}
+            {users.filter(u => u.role === "driver").length === 0 && (
+              <p className="text-center text-gray-400 py-8">No captains found</p>
+            )}
+          </div>
         )}
 
         {/* ── RIDES ── */}

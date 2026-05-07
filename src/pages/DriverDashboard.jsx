@@ -13,7 +13,16 @@ const getUserId = (user) => {
   return String(raw);
 };
 
-const PHASES = { IDLE: "idle", REQUEST: "request", ACCEPTED: "accepted", TRANSIT: "transit", DONE: "done" };
+const getRideId = (ride) => {
+  if (!ride) return null;
+  const raw = ride._id || ride.rideId;
+  if (!raw) return null;
+  // Handle MongoDB ObjectId serialized as { $oid: "..." }
+  if (typeof raw === "object" && raw.$oid) return raw.$oid;
+  return String(raw);
+};
+
+const PHASES = { IDLE: "idle", REQUEST: "request", ACCEPTED: "accepted", ARRIVED: "arrived", TRANSIT: "transit", DONE: "done" };
 
 export default function DriverDashboard() {
   const { user, logout } = useContext(AuthContext);
@@ -30,7 +39,7 @@ export default function DriverDashboard() {
   const [drawer, setDrawer] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [tab, setTab] = useState("home");
-  const [cancelPopup, setCancelPopup] = useState(false); // home | earnings
+  const [cancelPopup, setCancelPopup] = useState(false);
 
   // GPS ping when online
   useEffect(() => {
@@ -48,24 +57,50 @@ export default function DriverDashboard() {
   const onlineRef = useRef(online);
   useEffect(() => { onlineRef.current = online; }, [online]);
 
-  // Socket events — registered ONCE per userId, never torn down on online toggle
+  // Socket events
   useEffect(() => {
     const captainId = getUserId(user);
     if (!captainId) return;
 
-    // Re-register on every reconnect
-    const registerRoom = () =>
+    // Connect socket if not already connected
+    if (!socket.connected) socket.connect();
+
+    const registerRoom = () => {
       socket.emit("register", { userId: captainId, role: "driver" });
+      // Re-emit captain_online if driver was already online (handles server restart)
+      if (onlineRef.current) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => socket.emit("captain_online", { captainId, lat: pos.coords.latitude, lng: pos.coords.longitude, vehicle: user?.vehicle || "bike" }),
+          ()    => socket.emit("captain_online", { captainId, lat: location.lat, lng: location.lng, vehicle: user?.vehicle || "bike" })
+        );
+      }
+      console.log("🔌 Driver socket registered:", captainId);
+    };
+
+    // Register immediately if already connected
+    if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     const onNewRide = (ride) => {
+      console.log("🔔 new_ride received | online:", onlineRef.current, "| rideId:", getRideId(ride));
       if (!onlineRef.current) return;
-      setActiveRide(ride);
+      // Normalize _id immediately to plain string
+      const normalized = { ...ride, _id: getRideId(ride) };
+      setActiveRide(normalized);
       setPhase(PHASES.REQUEST);
       setTimer(20);
     };
     const onRideAssigned = (data) => {
-      setActiveRide((prev) => ({ ...prev, ...data }));
+      const normalized = { ...data, _id: data._id || data.rideId };
+      setActiveRide((prev) => ({ ...prev, ...normalized }));
+      setPhase(PHASES.ACCEPTED);
+    };
+
+    // ride_confirmed = new unified two-way event
+    const onRideConfirmed = (data) => {
+      // Normalize: backend sends rideId, ensure _id is always set
+      const normalized = { ...data, _id: data._id || data.rideId };
+      setActiveRide((prev) => ({ ...prev, ...normalized }));
       setPhase(PHASES.ACCEPTED);
     };
     const onRideStartedConfirm = () => setPhase(PHASES.TRANSIT);
@@ -97,6 +132,7 @@ export default function DriverDashboard() {
 
     socket.on("new_ride", onNewRide);
     socket.on("ride_assigned", onRideAssigned);
+    socket.on("ride_confirmed", onRideConfirmed);
     socket.on("ride_started_confirm", onRideStartedConfirm);
     socket.on("ride_completed", onRideCompleted);
     socket.on("ride_cancelled", onRideCancelled);
@@ -105,6 +141,7 @@ export default function DriverDashboard() {
       socket.off("connect", registerRoom);
       socket.off("new_ride", onNewRide);
       socket.off("ride_assigned", onRideAssigned);
+      socket.off("ride_confirmed", onRideConfirmed);
       socket.off("ride_started_confirm", onRideStartedConfirm);
       socket.off("ride_completed", onRideCompleted);
       socket.off("ride_cancelled", onRideCancelled);
@@ -120,27 +157,46 @@ export default function DriverDashboard() {
     return () => clearTimeout(t);
   }, [phase, timer]);
 
+  const getActiveRideId = () => getRideId(activeRide);
+
   const acceptRide = async () => {
+    const rideId = getActiveRideId();
+    if (!rideId) return alert("Ride ID missing. Please try again.");
     try {
-      const res = await API.post(`/rides/accept/${activeRide._id}`);
-      setActiveRide(res.data);
+      const res = await API.post(`/rides/accept/${rideId}`);
+      setActiveRide((prev) => ({ ...prev, ...res.data, _id: getRideId(res.data) || rideId }));
       setPhase(PHASES.ACCEPTED);
     } catch (err) {
-      alert(err.response?.data?.msg || "Failed to accept ride");
+      const msg = err.response?.data?.msg || "Failed to accept ride";
+      if (msg.includes("pending") || msg.includes("rejected")) {
+        alert(`⚠️ ${msg}`);
+        setPhase(PHASES.IDLE);
+        setActiveRide(null);
+      } else {
+        alert(msg);
+      }
     }
   };
 
   const markArrived = async () => {
-    try { await API.post(`/rides/arrived/${activeRide._id}`); } catch {}
-    // notify user captain has arrived
+    const rideId = getActiveRideId();
+    if (!rideId) return;
+    try {
+      await API.post(`/rides/arrived/${rideId}`);
+      setPhase(PHASES.ARRIVED);
+    } catch (err) {
+      alert(err.response?.data?.msg || "Failed to mark arrival");
+    }
   };
 
   const startRide = async () => {
     if (!otp || otp.length < 4) return alert("Enter 4-digit OTP");
+    const rideId = getActiveRideId();
+    if (!rideId) return alert("Ride ID missing.");
     try {
-      const res = await API.post(`/rides/verify-otp/${activeRide._id}`, { otp });
+      const res = await API.post(`/rides/verify-otp/${rideId}`, { otp });
       if (res.data) {
-        setActiveRide((prev) => ({ ...prev, ...res.data }));
+        setActiveRide((prev) => ({ ...prev, ...res.data, _id: getRideId(res.data) || rideId }));
         setPhase(PHASES.TRANSIT);
       }
     } catch (err) {
@@ -149,13 +205,19 @@ export default function DriverDashboard() {
   };
 
   const completeRide = async () => {
-    try { const res = await API.post(`/rides/complete/${activeRide._id}`); setActiveRide(res.data); } catch {}
+    const rideId = getActiveRideId();
+    if (!rideId) return;
+    try {
+      const res = await API.post(`/rides/complete/${rideId}`);
+      setActiveRide((prev) => ({ ...prev, ...res.data }));
+    } catch {}
     setPhase(PHASES.DONE);
     setEarnings((p) => ({ ...p, today: p.today + (activeRide?.fare || 0), wallet: p.wallet + (activeRide?.fare || 0), trips: p.trips + 1 }));
   };
 
   const submitRating = async () => {
-    try { await API.post(`/rides/${activeRide?._id}/rate`, { rating, by: "driver" }); } catch {}
+    const rideId = getActiveRideId();
+    try { if (rideId) await API.post(`/rides/${rideId}/rate`, { rating, by: "driver" }); } catch {}
     setPhase(PHASES.IDLE); setActiveRide(null); setOtp(""); setRating(0);
   };
 
@@ -285,8 +347,9 @@ export default function DriverDashboard() {
         </div>
         {/* Online Toggle */}
         <button onClick={() => {
-            const captainId = user?._id || user?.id;
+            const captainId = getUserId(user);
             const newOnline = !online;
+            onlineRef.current = newOnline;
             setOnline(newOnline);
             if (newOnline) {
               navigator.geolocation.getCurrentPosition((pos) => {
@@ -337,12 +400,13 @@ export default function DriverDashboard() {
         {phase === PHASES.IDLE && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[999]">
             <button onClick={() => {
-                const captainId = user?._id || user?.id;
+                const captainId = getUserId(user);
                 const newOnline = !online;
+                onlineRef.current = newOnline;
                 setOnline(newOnline);
                 if (newOnline) {
                   navigator.geolocation.getCurrentPosition((pos) => {
-                    socket.emit("captain_online", { captainId, lat: pos.coords.latitude, lng: pos.coords.longitude, vehicle: "bike" });
+                    socket.emit("captain_online", { captainId, lat: pos.coords.latitude, lng: pos.coords.longitude, vehicle: user?.vehicle || "bike" });
                   }, () => socket.emit("captain_online", { captainId, lat: location.lat, lng: location.lng, vehicle: "bike" }));
                 } else {
                   socket.emit("captain_offline", { captainId });
@@ -385,6 +449,32 @@ export default function DriverDashboard() {
         {/* ── IDLE / HOME ── */}
         {phase === PHASES.IDLE && tab === "home" && (
           <div className="px-4 pb-5 space-y-3">
+
+            {/* Approval Status Banner */}
+            {user?.captainStatus === "pending" && (
+              <div className="bg-yellow-50 border-2 border-yellow-300 rounded-2xl p-3 flex items-center gap-3">
+                <span className="text-2xl">⏳</span>
+                <div>
+                  <p className="font-black text-yellow-700 text-sm">Account Pending Approval</p>
+                  <p className="text-yellow-600 text-xs">A Manager will review your documents. You cannot accept rides yet.</p>
+                </div>
+              </div>
+            )}
+            {user?.captainStatus === "rejected" && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-3 flex items-center gap-3">
+                <span className="text-2xl">❌</span>
+                <div>
+                  <p className="font-black text-red-700 text-sm">Account Rejected</p>
+                  <p className="text-red-600 text-xs">Your application was rejected. Please contact support.</p>
+                </div>
+              </div>
+            )}
+            {(user?.captainStatus === "approved" || !user?.captainStatus) && (
+              <div className="bg-green-50 border border-green-200 rounded-2xl p-2 flex items-center gap-2">
+                <span className="text-lg">✅</span>
+                <p className="text-green-700 text-xs font-bold">Account Approved — You can accept rides</p>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2">
               {[
                 { label: "Earned", value: `₹${earnings.today}`, icon: "💰", color: "bg-yellow-50 border-yellow-200" },
@@ -464,9 +554,9 @@ export default function DriverDashboard() {
                 </div>
                 <div className="flex-1 space-y-2">
                   <div>
-                    <p className="text-xs text-gray-400 font-semibold">PICKUP • 1.2 km away</p>
+                    <p className="text-xs text-gray-400 font-semibold">PICKUP</p>
                     <p className="font-semibold text-gray-800 text-sm">
-                      {activeRide.pickup?.lat?.toFixed(4)}, {activeRide.pickup?.lng?.toFixed(4)}
+                      {activeRide.pickup?.address || `${activeRide.pickup?.lat?.toFixed(4)}, ${activeRide.pickup?.lng?.toFixed(4)}`}
                     </p>
                   </div>
                   <div>
@@ -477,6 +567,16 @@ export default function DriverDashboard() {
                   </div>
                 </div>
               </div>
+              {/* Rider name preview — available from new_ride payload */}
+              {activeRide.user?.name && (
+                <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+                  <div className="w-7 h-7 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-black">
+                    {activeRide.user.name[0]}
+                  </div>
+                  <p className="text-sm font-semibold text-gray-700">{activeRide.user.name}</p>
+                  <span className="text-xs text-gray-400 ml-auto">📞 Hidden until accepted</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between bg-yellow-50 rounded-2xl px-4 py-3 border border-yellow-200">
@@ -503,36 +603,92 @@ export default function DriverDashboard() {
           </div>
         )}
 
-        {/* ── ACCEPTED: Navigate + Arrived + OTP ── */}
+        {/* ── STEP 2: ACCEPTED — Navigate to pickup ── */}
         {phase === PHASES.ACCEPTED && activeRide && (
           <div className="px-4 pb-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <p className="font-bold text-green-600">Navigate to pickup point</p>
-            </div>
-            <div className="bg-gray-50 rounded-2xl p-3 flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-400">Pickup</p>
-                <p className="font-semibold text-sm">
-                  {activeRide.pickup?.address || `${activeRide.pickup?.lat?.toFixed(4)}, ${activeRide.pickup?.lng?.toFixed(4)}`}
-                </p>
+
+            {/* User Profile Card — phone revealed after acceptance */}
+            <div className="bg-blue-50 rounded-2xl p-3 border border-blue-100 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-blue-300 flex-shrink-0">
+                {activeRide.user?.photo
+                  ? <img src={activeRide.user.photo} alt="user" className="w-full h-full object-cover" />
+                  : <div className="w-full h-full bg-blue-500 flex items-center justify-center text-white font-black text-lg">
+                      {(activeRide.user?.name || "R")[0]}
+                    </div>}
               </div>
-              <button className="bg-blue-500 text-white text-xs font-bold px-3 py-2 rounded-xl">🗺️ Navigate</button>
+              <div className="flex-1">
+                <p className="font-black text-gray-800 text-sm">{activeRide.user?.name || "Rider"}</p>
+                <a href={`tel:${activeRide.user?.phone}`}
+                  className="text-xs text-blue-600 font-bold">
+                  📞 {activeRide.user?.phone || "N/A"}
+                </a>
+              </div>
+              <span className="text-xs bg-blue-100 text-blue-700 font-bold px-2 py-1 rounded-full">Rider</span>
             </div>
-            {/* I've Arrived button — triggers proximity alert to user */}
+
+            {/* Ride Details */}
+            <div className="bg-gray-50 rounded-2xl p-3 space-y-2">
+              <p className="text-xs font-black text-gray-500">📍 RIDE DETAILS</p>
+              <div className="flex items-start gap-3">
+                <div className="flex flex-col items-center gap-1 mt-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                  <div className="w-0.5 h-5 bg-gray-300" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <div>
+                    <p className="text-xs text-gray-400">PICKUP</p>
+                    <p className="font-semibold text-gray-800 text-sm">
+                      {activeRide.pickup?.address || `${activeRide.pickup?.lat?.toFixed(4)}, ${activeRide.pickup?.lng?.toFixed(4)}`}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">DROP</p>
+                    <p className="font-semibold text-gray-800 text-sm">
+                      {activeRide.destination?.address || `${activeRide.destination?.lat?.toFixed(4)}, ${activeRide.destination?.lng?.toFixed(4)}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-400">Fare</p>
+                  <p className="font-black text-yellow-600 text-lg">₹{activeRide.fare || 80}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button className="flex-1 bg-blue-500 text-white font-bold py-3 rounded-2xl text-sm">🗺️ Navigate</button>
+              <a href={`tel:${activeRide.user?.phone || "#"}`}
+                className="flex-1 bg-green-500 text-white font-bold py-3 rounded-2xl text-sm text-center">📞 Call Rider</a>
+            </div>
+
             <button onClick={markArrived}
-              className="w-full bg-green-500 text-white font-bold py-3 rounded-2xl text-sm">
+              className="w-full bg-yellow-500 text-white font-black py-4 rounded-2xl text-base shadow-lg">
               📍 I've Arrived at Pickup
             </button>
+          </div>
+        )}
+
+        {/* ── ARRIVED — OTP Entry ── */}
+        {phase === PHASES.ARRIVED && activeRide && (
+          <div className="px-4 pb-5 space-y-3">
+            <div className="bg-green-50 border border-green-200 rounded-2xl p-3 flex items-center gap-3">
+              <span className="text-2xl">📍</span>
+              <div>
+                <p className="font-black text-green-700 text-sm">You've arrived at pickup!</p>
+                <p className="text-green-600 text-xs">Ask rider for the 4-digit OTP</p>
+              </div>
+            </div>
             <div>
-              <label className="text-sm font-semibold text-gray-600">Enter Rider's OTP to start</label>
-              <input type="text" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value)}
-                className="w-full mt-1 border-2 border-gray-200 focus:border-yellow-400 rounded-xl p-3 text-center text-2xl font-black tracking-widest outline-none"
+              <label className="text-sm font-semibold text-gray-600">Enter Rider's OTP</label>
+              <input type="number" maxLength={4} value={otp}
+                onChange={(e) => setOtp(e.target.value.slice(0, 4))}
+                className="w-full mt-2 border-2 border-gray-200 focus:border-yellow-400 rounded-2xl p-4 text-center text-4xl font-black tracking-widest outline-none"
                 placeholder="• • • •" />
             </div>
-            <button onClick={startRide}
-              className="w-full bg-yellow-500 text-white font-black py-4 rounded-2xl text-lg shadow-lg">
-              🚀 Verify OTP & Start Ride
+            <button onClick={startRide} disabled={otp.length < 4}
+              className="w-full bg-yellow-500 text-white font-black py-4 rounded-2xl text-lg shadow-lg disabled:opacity-40">
+              🚀 Verify OTP &amp; Start Ride
             </button>
           </div>
         )}

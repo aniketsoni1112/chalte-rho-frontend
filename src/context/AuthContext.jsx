@@ -1,10 +1,11 @@
 import { createContext, useState, useEffect } from "react";
 import { registerPush } from "../utils/registerPush";
 import socket from "./SocketContext";
+import axios from "axios";
+import { BASE_URL } from "../services/api";
 
 const AuthContext = createContext();
 
-// Extract clean string userId from any user object shape
 const extractId = (user) => {
   if (!user) return null;
   const raw = user._id || user.id;
@@ -17,7 +18,6 @@ const connectSocket = (user) => {
   const userId = extractId(user);
   if (!userId) return;
   if (!socket.connected) socket.connect();
-  // Register immediately if already connected, else wait for connect event
   const register = () => socket.emit("register", { userId, role: user.role || "user" });
   if (socket.connected) register();
   else socket.once("connect", register);
@@ -25,9 +25,24 @@ const connectSocket = (user) => {
 
 const normalizeUser = (user) => {
   if (!user) return user;
-  // Normalize legacy role:rider -> role:user
   if (user.role === "rider") return { ...user, role: "user" };
   return user;
+};
+
+// Fetch fresh profile — works for all roles via JWT
+const refreshUserFromServer = async (token) => {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/api/user/profile`, {
+      headers: { Authorization: token },
+    });
+    return normalizeUser(data);
+  } catch (err) {
+    // 401 = token expired/invalid — clear session
+    if (err?.response?.status === 401) {
+      localStorage.clear();
+    }
+    return null;
+  }
 };
 
 export default function AuthProvider({ children }) {
@@ -35,37 +50,48 @@ export default function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("user");
-      if (saved) {
-        const parsed = normalizeUser(JSON.parse(saved));
-        if (parsed?.role) {
-          // Re-save normalized user back to localStorage
-          localStorage.setItem("user", JSON.stringify(parsed));
-          setUser(parsed);
-          connectSocket(parsed);
-          registerPush();
-        } else {
-          localStorage.clear();
+    const init = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const saved = localStorage.getItem("user");
+        if (token && saved) {
+          const cached = normalizeUser(JSON.parse(saved));
+          if (cached?.role) {
+            // Set cached user first so loading=false doesn't flash redirect
+            setUser(cached);
+            connectSocket(cached);
+          }
+          // Refresh from server in background
+          const fresh = await refreshUserFromServer(token);
+          if (fresh) {
+            localStorage.setItem("user", JSON.stringify(fresh));
+            setUser(fresh);
+            connectSocket(fresh);
+            registerPush();
+          } else if (!cached?.role) {
+            // No cached user and refresh failed — clear
+            localStorage.clear();
+          }
         }
+      } catch {
+        localStorage.clear();
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      localStorage.clear();
-    }
-    setLoading(false);
+    };
+    init();
   }, []);
 
   const login = (data) => {
-    const user = normalizeUser(data.user);
+    const u = normalizeUser(data.user);
     localStorage.setItem("token", data.token);
-    localStorage.setItem("user", JSON.stringify(user));
-    setUser(user);
-    connectSocket(user);
+    localStorage.setItem("user", JSON.stringify(u));
+    setUser(u);
+    connectSocket(u);
     registerPush();
   };
 
   const logout = () => {
-    // Disconnect socket cleanly before clearing session
     socket.disconnect();
     localStorage.clear();
     setUser(null);

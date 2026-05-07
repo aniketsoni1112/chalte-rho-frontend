@@ -65,9 +65,15 @@ export default function UserHome() {
     if (!userId) return;
     userIdRef.current = userId;
 
-    // Re-register on every reconnect (handles logout/login cycle)
-    const registerRoom = () =>
+    // Connect if not connected
+    if (!socket.connected) socket.connect();
+
+    // Register room immediately + on every reconnect
+    const registerRoom = () => {
       socket.emit("register", { userId, role: user.role || "user" });
+      console.log("✅ User socket registered:", userId);
+    };
+    if (socket.connected) registerRoom();
     socket.on("connect", registerRoom);
 
     const onDriverLocation = (loc) => {
@@ -78,12 +84,19 @@ export default function UserHome() {
       if (data.status === "searching") setPhase(PHASES.SEARCHING);
     };
     const onRideAccepted = (r) => {
-      setRide((prev) => ({ ...prev, ...r, otp: r.otp || prev?.otp }));
-      setPhase(PHASES.PICKUP);
+      setRide((prev) => ({ ...prev, ...r, _id: r._id || r.rideId || prev?._id, otp: r.otp || prev?.otp }));
+      setPhase(PHASES.MATCHED);
+      setEta(Math.floor(Math.random() * 5 + 2));
+    };
+
+    const onRideConfirmed = (r) => {
+      setRide((prev) => ({ ...prev, ...r, _id: r._id || r.rideId || prev?._id, otp: r.otp || prev?.otp }));
+      setPhase(PHASES.MATCHED);
       setEta(Math.floor(Math.random() * 5 + 2));
     };
     const onCaptainArrived = (r) => {
       setRide((prev) => ({ ...prev, ...r }));
+      setPhase(PHASES.MATCHED); // ensure user sees captain card + OTP
       setEta(0);
     };
     const onRideStarted = (data) => {
@@ -109,6 +122,7 @@ export default function UserHome() {
     socket.on("driver_location", onDriverLocation);
     socket.on("ride_status_update", onRideStatusUpdate);
     socket.on("ride_accepted", onRideAccepted);
+    socket.on("ride_confirmed", onRideConfirmed);
     socket.on("captain_arrived", onCaptainArrived);
     socket.on("ride_started", onRideStarted);
     socket.on("ride_completed", onRideCompleted);
@@ -119,6 +133,7 @@ export default function UserHome() {
       socket.off("driver_location", onDriverLocation);
       socket.off("ride_status_update", onRideStatusUpdate);
       socket.off("ride_accepted", onRideAccepted);
+      socket.off("ride_confirmed", onRideConfirmed);
       socket.off("captain_arrived", onCaptainArrived);
       socket.off("ride_started", onRideStarted);
       socket.off("ride_completed", onRideCompleted);
@@ -450,36 +465,68 @@ export default function UserHome() {
         {/* ── MATCHED ── */}
         {phase === PHASES.MATCHED && ride && (
           <div className="p-4 space-y-3">
-            <div className="flex items-center gap-3 bg-green-50 rounded-2xl p-3 border border-green-100">
-              <div className="w-14 h-14 bg-yellow-500 rounded-full flex items-center justify-center text-white text-2xl font-black shadow">
-                {ride.driver?.name?.[0] || "D"}
-              </div>
-              <div className="flex-1">
-                <p className="font-black text-gray-800 text-base">{ride.driver?.name || "Captain Assigned"}</p>
-                <div className="flex items-center gap-1 text-sm text-gray-500">
-                  <span>⭐ 4.8</span>
-                  <span>•</span>
-                  <span>{selectedVehicle?.label}</span>
+            {/* Captain Profile Card */}
+            <div className="bg-green-50 rounded-2xl p-4 border border-green-100">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-yellow-400 flex-shrink-0">
+                  {ride.captain?.photo
+                    ? <img src={ride.captain.photo} alt="captain" className="w-full h-full object-cover" />
+                    : <div className="w-full h-full bg-yellow-500 flex items-center justify-center text-white text-2xl font-black">
+                        {(ride.captain?.captainName || ride.driver?.captainName || "C")[0]}
+                      </div>}
                 </div>
-                <p className="text-xs text-gray-400 mt-0.5">{ride.driver?.vehicleNo || "MP 09 AB 1234"}</p>
+                <div className="flex-1">
+                  <p className="font-black text-gray-800">{ride.captain?.captainName || ride.driver?.captainName || "Captain"}</p>
+                  <div className="flex items-center gap-1">
+                    {[1,2,3,4,5].map(s => <span key={s} className="text-yellow-400 text-xs">★</span>)}
+                    <span className="text-gray-400 text-xs ml-1">{ride.captain?.rating || 4.8}</span>
+                  </div>
+                  <a href={`tel:${ride.captain?.phone || ride.driver?.phone}`}
+                    className="text-xs text-green-600 font-bold">
+                    📞 {ride.captain?.phone || ride.driver?.phone || "N/A"}
+                  </a>
+                </div>
+                <p className="font-black text-yellow-600 text-xl">₹{ride.fare}</p>
               </div>
-              <p className="font-black text-yellow-600 text-xl">₹{ride.fare}</p>
+
+              {/* Vehicle Details */}
+              <div className="bg-white rounded-xl p-3 space-y-1.5">
+                <p className="text-xs font-black text-gray-500 mb-1">🚗 VEHICLE DETAILS</p>
+                {[
+                  { label: "Vehicle", value: ride.captain?.vehicleModel || ride.driver?.vehicleModel || ride.vehicle },
+                  { label: "Number", value: ride.captain?.vehicleNumber || ride.driver?.vehicleNumber || "N/A" },
+                  { label: "RC",     value: ride.captain?.rcDetails    || ride.driver?.rcDetails    || "N/A" },
+                ].map(d => (
+                  <div key={d.label} className="flex justify-between">
+                    <span className="text-xs text-gray-400">{d.label}</span>
+                    <span className="text-xs font-bold text-gray-700">{d.value}</span>
+                  </div>
+                ))}
+                {(ride.captain?.currentLocation || ride.driver?.currentLocation) && (
+                  <div className="flex justify-between">
+                    <span className="text-xs text-gray-400">📍 Location</span>
+                    <span className="text-xs font-bold text-blue-500">
+                      {(ride.captain?.currentLocation || ride.driver?.currentLocation)?.lat?.toFixed(4)},
+                      {(ride.captain?.currentLocation || ride.driver?.currentLocation)?.lng?.toFixed(4)}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* OTP */}
             <div className="bg-yellow-50 rounded-2xl p-3 text-center border border-yellow-200">
               <p className="text-gray-500 text-xs font-semibold mb-1">🔐 Share OTP with Captain</p>
               <p className="font-black text-4xl tracking-widest text-yellow-600">
-                {ride?.otp ? String(ride.otp).padStart(4, '0') : "----"}
+                {String(ride.otp || "----").padStart(4, "0")}
               </p>
-              <p className="text-gray-400 text-xs mt-1">Share this with your Captain to start the ride</p>
+              <p className="text-gray-400 text-xs mt-1">Share only when captain arrives</p>
             </div>
 
-            {/* Call / Chat */}
             <div className="flex gap-2">
-              <a href={`tel:${ride.driver?.phone || "#"}`}
+              <a href={`tel:${ride.captain?.phone || ride.driver?.phone || "#"}`}
                 className="flex-1 flex items-center justify-center gap-2 bg-green-500 text-white font-bold py-3 rounded-2xl">
-                📞 Call
+                📞 Call Captain
               </a>
               <button className="flex-1 flex items-center justify-center gap-2 bg-blue-500 text-white font-bold py-3 rounded-2xl">
                 💬 Chat
@@ -499,11 +546,14 @@ export default function UserHome() {
             </div>
             <div className="flex items-center gap-3 bg-gray-50 rounded-2xl p-3">
               <div className="w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center text-white text-xl font-black">
-                {ride.driver?.name?.[0] || "D"}
+                {(ride.driver?.captainName || ride.driver?.name)?.[0] || "C"}
               </div>
               <div className="flex-1">
-                <p className="font-black text-gray-800">{ride.driver?.name || "Your Captain"}</p>
-                <p className="text-gray-500 text-xs">{ride.driver?.vehicleNo || "MP 09 AB 1234"} • ⭐ 4.8</p>
+                <p className="font-black text-gray-800">{ride.driver?.captainName || ride.driver?.name || "Your Captain"}</p>
+                <p className="text-gray-500 text-xs">🚗 {ride.driver?.vehicleNumber || ride.driver?.vehicleNo || "N/A"} • ⭐ {ride.driver?.rating || 4.8}</p>
+                {ride.driver?.currentLocation && (
+                  <p className="text-xs text-blue-500">📍 ({ride.driver.currentLocation.lat?.toFixed(4)}, {ride.driver.currentLocation.lng?.toFixed(4)})</p>
+                )}
               </div>
               <div className="flex gap-2">
                 <a href={`tel:${ride.driver?.phone || "#"}`} className="bg-green-500 text-white p-2 rounded-full text-base">📞</a>
@@ -513,7 +563,7 @@ export default function UserHome() {
             <div className="bg-yellow-50 rounded-2xl p-3 text-center border border-yellow-200">
               <p className="text-gray-500 text-xs font-semibold mb-1">🔐 Your OTP</p>
               <p className="font-black text-4xl tracking-widest text-yellow-600">
-                {ride?.otp ? String(ride.otp).padStart(4, '0') : "----"}
+                {ride?.otp ? String(ride.otp).padStart(4, "0") : "----"}
               </p>
               <p className="text-gray-400 text-xs mt-1">Share this with your Captain to start the ride</p>
             </div>

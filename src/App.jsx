@@ -20,6 +20,8 @@ import CaptainSupport from "./pages/CaptainSupport";
 import CaptainSettings from "./pages/CaptainSettings";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ChatBot from "./components/ChatBot";
+import ManagerLogin from "./pages/ManagerLogin";
+import ManagerDashboard from "./pages/ManagerDashboard";
 
 export default function App() {
   return (
@@ -43,7 +45,9 @@ export default function App() {
         <Route path="/captain/rewards" element={<ProtectedRoute><CaptainRewards /></ProtectedRoute>} />
         <Route path="/captain/support" element={<ProtectedRoute><CaptainSupport /></ProtectedRoute>} />
         <Route path="/captain/settings" element={<ProtectedRoute><CaptainSettings /></ProtectedRoute>} />
-        <Route path="/admin" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute role={["admin", "manager"]}><AdminPanel /></ProtectedRoute>} />
+        <Route path="/manager/login" element={<ManagerLogin />} />
+        <Route path="/manager" element={<ProtectedRoute role={["manager", "admin"]}><ManagerDashboard /></ProtectedRoute>} />
       </Routes>
       <ChatBot />
     </BrowserRouter>

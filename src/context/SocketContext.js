@@ -1,12 +1,12 @@
 import { io } from "socket.io-client";
-import { TUNNEL_URL } from "../services/api";
+import { BASE_URL } from "../services/api";
 
-const socket = io(TUNNEL_URL, {
+const socket = io(BASE_URL, {
   transports: ["websocket", "polling"],
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
-  autoConnect: false,
+  autoConnect: true,
 });
 
 export default socket;
